@@ -1,0 +1,14 @@
+- name: Install and Configure Nginx
+  hosts: all
+  become: yes
+  pre_tasks:
+  - name: Set SSH user for Ubuntu systems
+    set_fact:
+      ansible_user: ubuntu
+    when: ansible_os_family == "Debian"
+  tasks: 
+  - name: Install Nginx
+    ansible.builtin.apt:
+      update_cache: yes
+      name: nginx
+      state: present
