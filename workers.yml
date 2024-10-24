@@ -16,7 +16,7 @@
     - name: TCP port 6443 on master is reachable from worker
       wait_for:
         port: 6443
-        host: "{{ hostvars[groups['master'][0]].ansible_host }}"
+        host: "{{ hostvars[groups['worker'][0]].ansible_host }}"
         state: started
         timeout: 10
 
