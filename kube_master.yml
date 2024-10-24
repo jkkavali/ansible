@@ -1,77 +1,59 @@
----
-- name: Install Kubernetes on Ubuntu 22.04
-  hosts: all
+- hosts: master
   become: yes
   tasks:
-    - name: Update apt package index
-      apt:
-        update_cache: yes
+    - name: create an empty file for Kubeadm configuring
+      copy:
+        content: ""
+        dest: /etc/kubernetes/kubeadm-config.yaml
+        force: no
 
-    - name: Install required packages
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - gnupg
-          - lsb-release
-        state: present
+    - name: configuring the container runtime including its cgroup driver
+      blockinfile:
+        path: /etc/kubernetes/kubeadm-config.yaml
+        block: |
+             kind: ClusterConfiguration
+             apiVersion: kubeadm.k8s.io/v1beta3
+             networking:
+               podSubnet: "10.244.0.0/16"
+             ---
+             kind: KubeletConfiguration
+             apiVersion: kubelet.config.k8s.io/v1beta1
+             runtimeRequestTimeout: "15m"
+             cgroupDriver: "systemd"
+             systemReserved:
+               cpu: 100m
+               memory: 350M
+             kubeReserved:
+               cpu: 100m
+               memory: 50M
+             enforceNodeAllocatable:
+             - pods
 
-    - name: Add Kubernetes APT repository
-      apt_repository:
-        repo: "deb https://apt.kubernetes.io/$(lsb_release -cs) main"
-        state: present
+    - name: initialize the cluster (this could take some time)
+      shell: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml >> cluster_initialized.log
+      args:
+        chdir: /home/ubuntu
+        creates: cluster_initialized.log
 
-    - name: Download Google Cloud public signing key
-      apt_key:
-        url: "https://packages.cloud.google.com/apt/doc/apt-key.gpg"
-        state: present
+    - name: create .kube directory
+      become: yes
+      become_user: ubuntu
+      file:
+        path: $HOME/.kube
+        state: directory
+        mode: 0755
 
-    - name: Install Kubernetes components
-      apt:
-        name:
-          - kubelet
-          - kubeadm
-          - kubectl
-        state: present
-        update_cache: yes
+    - name: copy admin.conf to user's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
 
-    - name: Mark kubelet to hold its version
-      command: apt-mark hold kubelet
-
-    - name: Mark kubeadm to hold its version
-      command: apt-mark hold kubeadm
-
-    - name: Mark kubectl to hold its version
-      command: apt-mark hold kubectl
-
-    - name: Disable swap (required by Kubernetes)
-      command: swapoff -a
-      ignore_errors: yes
-
-    - name: Remove swap entry from /etc/fstab
-      lineinfile:
-        path: /etc/fstab
-        regexp: '^.*swap.*'
-        state: absent
-
-    - name: Initialize Kubernetes cluster (control plane only)
-      command: kubeadm init --pod-network-cidr=192.168.0.0/16
-      register: kubeadm_init
-      when: inventory_hostname == groups['k8s_master'][0]
-
-    - name: Set up kubeconfig for the ubuntu user
-      command: "{{ item }}"
-      with_items:
-        - mkdir -p $HOME/.kube
-        - sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-        - sudo chown $(id -u):$(id -g) $HOME/.kube/config
-      when: inventory_hostname == groups['k8s_master'][0]
-
-    - name: Install a pod network add-on
-      command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-      when: inventory_hostname == groups['k8s_master'][0]
-
-    - name: Allow scheduling on the master node (optional)
-      command: kubectl taint nodes --all node-role.kubernetes.io/master-
-      when: inventory_hostname == groups['k8s_master'][0]
+    - name: install Pod network
+      become: yes
+      become_user: ubuntu
+      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+      args:
+        chdir: $HOME
+        creates: pod_network_setup.log
