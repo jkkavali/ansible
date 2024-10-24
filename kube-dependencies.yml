@@ -135,9 +135,6 @@
         name: net.ipv4.ip_forward
         value: 1
 
-    - name: reboot and wait for reboot to complete
-      reboot:
-
 - hosts: master
   become: yes
   tasks:
